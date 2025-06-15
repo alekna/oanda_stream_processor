@@ -55,17 +55,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let bid_price: f64 = pt.closeout_bid.parse().unwrap_or(0.0);
                 let spread = ask_price - bid_price;
 
-                let parsed_datetime_utc = match DateTime::parse_from_rfc3339(&pt.time) {
-                    Ok(dt) => dt.with_timezone(&Utc),
+                // Parse and convert to local timezone
+                let parsed_datetime_local = match DateTime::parse_from_rfc3339(&pt.time) {
+                    Ok(dt) => dt.with_timezone(&Local),
                     Err(_e) => chrono::DateTime::parse_from_str(&pt.time, "%Y-%m-%dT%H:%M:%S%.fZ")
                         .map_err(|e| format!("Failed to parse timestamp for logging: {}", e))?
-                        .with_timezone(&Utc),
+                        .with_timezone(&Local),
                 };
 
-                let formatted_time = if parsed_datetime_utc.date_naive() == current_local_date {
-                    parsed_datetime_utc.format("%H:%M:%S").to_string()
+                let formatted_time = if parsed_datetime_local.date_naive() == current_local_date {
+                    parsed_datetime_local.format("%H:%M:%S").to_string()
                 } else {
-                    parsed_datetime_utc.format("%Y-%m-%d %H:%M:%S").to_string()
+                    parsed_datetime_local.format("%Y-%m-%d %H:%M:%S").to_string()
                 };
 
                 if verbose_output {
@@ -81,14 +82,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             },
             StreamMessage::Heartbeat(hb) => {
-                let parsed_datetime_utc = match DateTime::parse_from_rfc3339(&hb.time) {
-                    Ok(dt) => dt.with_timezone(&Utc),
+                // Parse and convert to local timezone
+                let parsed_datetime_local = match DateTime::parse_from_rfc3339(&hb.time) {
+                    Ok(dt) => dt.with_timezone(&Local),
                     Err(_e) => chrono::DateTime::parse_from_str(&hb.time, "%Y-%m-%dT%H:%M:%S%.fZ")
                         .map_err(|e| format!("Failed to parse heartbeat timestamp for logging: {}", e))?
-                        .with_timezone(&Utc),
+                        .with_timezone(&Local),
                 };
                 if verbose_output {
-                    println!("{} HEARTBEAT", parsed_datetime_utc.format("%H:%M:%S")); // Changed format
+                    println!("{} HEARTBEAT", parsed_datetime_local.format("%H:%M:%S"));
                 }
 
                 let proto_msg = convert_heartbeat_to_proto(hb)?;
