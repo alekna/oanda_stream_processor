@@ -1,5 +1,4 @@
-use serde::{Deserialize, Deserializer};
-use std::str::FromStr;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

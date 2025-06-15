@@ -1,7 +1,7 @@
 use tokio::sync::mpsc;
 use std::error::Error;
 use prost_types::Timestamp as ProstTimestamp;
-use chrono::{DateTime, Local, Timelike, Utc};
+use chrono::{DateTime, Local}; // Removed Utc as it's not directly used
 use std::env;
 
 mod config;
@@ -55,7 +55,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let bid_price: f64 = pt.closeout_bid.parse().unwrap_or(0.0);
                 let spread = ask_price - bid_price;
 
-                // Parse and convert to local timezone
                 let parsed_datetime_local = match DateTime::parse_from_rfc3339(&pt.time) {
                     Ok(dt) => dt.with_timezone(&Local),
                     Err(_e) => chrono::DateTime::parse_from_str(&pt.time, "%Y-%m-%dT%H:%M:%S%.fZ")
@@ -82,7 +81,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             },
             StreamMessage::Heartbeat(hb) => {
-                // Parse and convert to local timezone
                 let parsed_datetime_local = match DateTime::parse_from_rfc3339(&hb.time) {
                     Ok(dt) => dt.with_timezone(&Local),
                     Err(_e) => chrono::DateTime::parse_from_str(&hb.time, "%Y-%m-%dT%H:%M:%S%.fZ")
