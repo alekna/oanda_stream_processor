@@ -7,6 +7,7 @@ use tracing::{info, error, warn};
 use tracing_subscriber;
 use tokio::signal;
 use tokio::select;
+use tokio::signal::unix::{signal, SignalKind};
 
 mod config;
 mod models;
@@ -50,16 +51,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let oanda_config = config.clone();
     tokio::spawn(async move {
-        info!("Connecting to OANDA stream at: {}", oanda_config.base_url());
         if let Err(e) = oanda_client::connect_to_stream(&oanda_config, tx).await {
             error!("OANDA Stream Error: {}", e);
         }
     });
 
-    while let Some(msg) = rx.recv().await {
+    let mut sigterm_stream = signal(SignalKind::terminate())
+        .expect("Failed to create SIGTERM signal stream");
+
+    loop {
         select! {
-            Some(msg_inner) = async { Some(msg) } => {
-                match msg_inner {
+            Some(msg) = rx.recv() => {
+                match msg {
                     StreamMessage::PriceTick(pt) => {
                         let ask_price: f64 = pt.closeout_ask.parse().unwrap_or(0.0);
                         let bid_price: f64 = pt.closeout_bid.parse().unwrap_or(0.0);
@@ -115,6 +118,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             _ = signal::ctrl_c() => {
                 info!("Exiting gracefully due to Ctrl+C.");
+                break;
+            }
+            _ = sigterm_stream.recv() => {
+                info!("Exiting gracefully due to SIGTERM.");
                 break;
             }
             else => {
