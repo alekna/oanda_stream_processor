@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package oanda_stream_processor;
+
+import "google/protobuf/timestamp.proto";
+
+message PriceLevelProto {
+  string price = 1;
+  uint64 liquidity = 2;
+}
+
+message PriceTickProto {
+  repeated PriceLevelProto asks = 1;
+  repeated PriceLevelProto bids = 2;
+  string closeout_ask = 3;
+  string closeout_bid = 4;
+  string instrument = 5;
+  string status = 6;
+  google.protobuf.Timestamp time = 7;
+}
+
+message HeartbeatProto {
+  google.protobuf.Timestamp time = 1;
+  string type = 2;
+}
+
+message StreamMessageProto {
+  oneof message_type {
+    PriceTickProto price_tick = 1;
+    HeartbeatProto heartbeat = 2;
+  }
+}

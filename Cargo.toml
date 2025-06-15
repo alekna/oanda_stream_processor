@@ -1,0 +1,21 @@
+[package]
+name = "oanda_stream_processor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zmq = "0.9"
+prost = "0.12"
+prost-types = "0.12"
+bytes = "1"
+urlencoding = "2.1.0"
+chrono = { version = "0.4", features = ["serde"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures = "0.3"
+
+[build-dependencies]
+prost-build = "0.12"
