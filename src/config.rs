@@ -1,7 +1,7 @@
 use std::env;
 use std::error::Error;
 
-#[derive(Debug, Clone)] // Added Clone derive here
+#[derive(Debug, Clone)]
 pub struct Config {
     pub auth_token: String,
     pub account_id: String,
@@ -16,10 +16,13 @@ impl Config {
             .map_err(|_| "OANDA_AUTH_TOKEN environment variable not set")?;
         let account_id = env::var("OANDA_ACCOUNT_ID")
             .map_err(|_| "OANDA_ACCOUNT_ID environment variable not set")?;
+
         let environment = env::var("OANDA_ENVIRONMENT")
-            .map_err(|_| "OANDA_ENVIRONMENT environment variable not set. Use 'fxtrade' or 'fxpractice'.")?;
+            .unwrap_or_else(|_| "fxpractice".to_string());
+
+        // OANDA_INSTRUMENTS now defaults to "EUR_USD" if not set.
         let instruments = env::var("OANDA_INSTRUMENTS")
-            .map_err(|_| "OANDA_INSTRUMENTS environment variable not set (e.g., EUR_USD,USD_CAD)")?;
+            .unwrap_or_else(|_| "EUR_USD".to_string());
 
         let zmq_address = env::var("ZMQ_PUBLISHER_ADDRESS")
             .unwrap_or_else(|_| "tcp://*:9500".to_string());
