@@ -4,6 +4,7 @@ use crate::config::Config;
 use crate::models::{StreamMessage, PriceTick, Heartbeat};
 use tokio::sync::mpsc;
 use std::error::Error;
+use tokio_util::io::StreamReader;
 use futures::TryStreamExt;
 
 pub async fn connect_to_stream(
@@ -30,7 +31,7 @@ pub async fn connect_to_stream(
 
     println!("Successfully connected to OANDA stream. Reading data...");
 
-    let stream_reader = tokio_util::io::StreamReader::new(
+    let stream_reader = StreamReader::new(
         response.bytes_stream()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     );

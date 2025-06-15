@@ -1,8 +1,12 @@
 use tokio::sync::mpsc;
 use std::error::Error;
 use prost_types::Timestamp as ProstTimestamp;
-use chrono::{DateTime, Local}; // Removed Utc as it's not directly used
+use chrono::{DateTime, Local};
 use std::env;
+use tracing::{info, error, warn};
+use tracing_subscriber;
+use tokio::signal;
+use tokio::select;
 
 mod config;
 mod models;
@@ -17,10 +21,14 @@ use models::{StreamMessage, PriceTick, Heartbeat};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
+
     let config = match config::Config::from_env() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Configuration Error: {}", e);
+            error!("Configuration Error: {}", e);
             eprintln!("\nPlease ensure the following environment variables are set:");
             eprintln!("  OANDA_AUTH_TOKEN=<YOUR_TOKEN>");
             eprintln!("  OANDA_ACCOUNT_ID=<YOUR_ACCOUNT_ID>");
@@ -36,71 +44,82 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let verbose_output = args.iter().any(|arg| arg == "-v");
 
     let publisher = publisher::ZmqPublisher::new(&config.zmq_address)?;
+    info!("ZMQ Publisher bound to {}", config.zmq_address);
 
     let (tx, mut rx) = mpsc::channel::<StreamMessage>(100);
 
     let oanda_config = config.clone();
     tokio::spawn(async move {
+        info!("Connecting to OANDA stream at: {}", oanda_config.base_url());
         if let Err(e) = oanda_client::connect_to_stream(&oanda_config, tx).await {
-            eprintln!("OANDA Stream Error: {}", e);
+            error!("OANDA Stream Error: {}", e);
         }
     });
 
-    let current_local_date = Local::now().date_naive();
-
     while let Some(msg) = rx.recv().await {
-        match msg {
-            StreamMessage::PriceTick(pt) => {
-                let ask_price: f64 = pt.closeout_ask.parse().unwrap_or(0.0);
-                let bid_price: f64 = pt.closeout_bid.parse().unwrap_or(0.0);
-                let spread = ask_price - bid_price;
+        select! {
+            Some(msg_inner) = async { Some(msg) } => {
+                match msg_inner {
+                    StreamMessage::PriceTick(pt) => {
+                        let ask_price: f64 = pt.closeout_ask.parse().unwrap_or(0.0);
+                        let bid_price: f64 = pt.closeout_bid.parse().unwrap_or(0.0);
+                        let spread = ask_price - bid_price;
 
-                let parsed_datetime_local = match DateTime::parse_from_rfc3339(&pt.time) {
-                    Ok(dt) => dt.with_timezone(&Local),
-                    Err(_e) => chrono::DateTime::parse_from_str(&pt.time, "%Y-%m-%dT%H:%M:%S%.fZ")
-                        .map_err(|e| format!("Failed to parse timestamp for logging: {}", e))?
-                        .with_timezone(&Local),
-                };
+                        let parsed_datetime_local = match DateTime::parse_from_rfc3339(&pt.time) {
+                            Ok(dt) => dt.with_timezone(&Local),
+                            Err(_e) => chrono::DateTime::parse_from_str(&pt.time, "%Y-%m-%dT%H:%M:%S%.fZ")
+                                .map_err(|e| format!("Failed to parse timestamp for printing: {}", e))?
+                                .with_timezone(&Local),
+                        };
 
-                let formatted_time = if parsed_datetime_local.date_naive() == current_local_date {
-                    parsed_datetime_local.format("%H:%M:%S").to_string()
-                } else {
-                    parsed_datetime_local.format("%Y-%m-%d %H:%M:%S").to_string()
-                };
+                        let formatted_time = parsed_datetime_local.format("%Y-%m-%d %H:%M:%S").to_string();
 
-                if verbose_output {
-                    println!("{} {} {} {} {:.5}", formatted_time, pt.instrument, pt.closeout_ask, pt.closeout_bid, spread);
+                        if verbose_output {
+                            println!("{} {} {} {} {:.5}", formatted_time, pt.instrument, pt.closeout_ask, pt.closeout_bid, spread);
+                        }
+
+                        let proto_msg = convert_price_tick_to_proto(pt)?;
+
+                        if let Err(e) = publisher.publish(&StreamMessageProto {
+                            message_type: Some(proto::stream_message_proto::MessageType::PriceTick(proto_msg))
+                        }) {
+                            error!("Error publishing PriceTick via ZMQ: {}", e);
+                        }
+                    },
+                    StreamMessage::Heartbeat(hb) => {
+                        let parsed_datetime_local = match DateTime::parse_from_rfc3339(&hb.time) {
+                            Ok(dt) => dt.with_timezone(&Local),
+                            Err(_e) => chrono::DateTime::parse_from_str(&hb.time, "%Y-%m-%dT%H:%M:%S%.fZ")
+                                .map_err(|e| format!("Failed to parse heartbeat timestamp for printing: {}", e))?
+                                .with_timezone(&Local),
+                        };
+
+                        let formatted_time = parsed_datetime_local.format("%Y-%m-%d %H:%M:%S").to_string();
+
+                        if verbose_output {
+                            println!("{} HEARTBEAT", formatted_time);
+                        }
+
+                        let proto_msg = convert_heartbeat_to_proto(hb)?;
+
+                        if let Err(e) = publisher.publish(&StreamMessageProto {
+                            message_type: Some(proto::stream_message_proto::MessageType::Heartbeat(proto_msg))
+                        }) {
+                            error!("Error publishing Heartbeat via ZMQ: {}", e);
+                        }
+                    },
+                    StreamMessage::Unknown(val) => {
+                        warn!("Received unexpected message: {:?}", val);
+                    }
                 }
-
-                let proto_msg = convert_price_tick_to_proto(pt)?;
-
-                if let Err(e) = publisher.publish(&StreamMessageProto {
-                    message_type: Some(proto::stream_message_proto::MessageType::PriceTick(proto_msg))
-                }) {
-                    eprintln!("Error publishing PriceTick via ZMQ: {}", e);
-                }
-            },
-            StreamMessage::Heartbeat(hb) => {
-                let parsed_datetime_local = match DateTime::parse_from_rfc3339(&hb.time) {
-                    Ok(dt) => dt.with_timezone(&Local),
-                    Err(_e) => chrono::DateTime::parse_from_str(&hb.time, "%Y-%m-%dT%H:%M:%S%.fZ")
-                        .map_err(|e| format!("Failed to parse heartbeat timestamp for logging: {}", e))?
-                        .with_timezone(&Local),
-                };
-                if verbose_output {
-                    println!("{} HEARTBEAT", parsed_datetime_local.format("%H:%M:%S"));
-                }
-
-                let proto_msg = convert_heartbeat_to_proto(hb)?;
-
-                if let Err(e) = publisher.publish(&StreamMessageProto {
-                    message_type: Some(proto::stream_message_proto::MessageType::Heartbeat(proto_msg))
-                }) {
-                    eprintln!("Error publishing Heartbeat via ZMQ: {}", e);
-                }
-            },
-            StreamMessage::Unknown(val) => {
-                eprintln!("[UNKNOWN_MESSAGE] Received unexpected message: {:?}", val);
+            }
+            _ = signal::ctrl_c() => {
+                info!("Exiting gracefully due to Ctrl+C.");
+                break;
+            }
+            else => {
+                info!("Message channel closed, main loop finishing.");
+                break;
             }
         }
     }

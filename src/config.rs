@@ -20,7 +20,6 @@ impl Config {
         let environment = env::var("OANDA_ENVIRONMENT")
             .unwrap_or_else(|_| "fxpractice".to_string());
 
-        // OANDA_INSTRUMENTS now defaults to "EUR_USD" if not set.
         let instruments = env::var("OANDA_INSTRUMENTS")
             .unwrap_or_else(|_| "EUR_USD".to_string());
 
