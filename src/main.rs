@@ -1,6 +1,8 @@
 use tokio::sync::mpsc;
 use std::error::Error;
 use prost_types::Timestamp as ProstTimestamp;
+use chrono::{DateTime, Local, Timelike, Utc};
+use std::env;
 
 mod config;
 mod models;
@@ -30,6 +32,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
+    let args: Vec<String> = env::args().collect();
+    let verbose_output = args.iter().any(|arg| arg == "-v");
+
     let publisher = publisher::ZmqPublisher::new(&config.zmq_address)?;
 
     let (tx, mut rx) = mpsc::channel::<StreamMessage>(100);
@@ -41,10 +46,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    let current_local_date = Local::now().date_naive();
+
     while let Some(msg) = rx.recv().await {
         match msg {
             StreamMessage::PriceTick(pt) => {
-                println!("[PRICE_TICK] {}: Ask {} / Bid {}", pt.instrument, pt.closeout_ask, pt.closeout_bid);
+                let ask_price: f64 = pt.closeout_ask.parse().unwrap_or(0.0);
+                let bid_price: f64 = pt.closeout_bid.parse().unwrap_or(0.0);
+                let spread = ask_price - bid_price;
+
+                let parsed_datetime_utc = match DateTime::parse_from_rfc3339(&pt.time) {
+                    Ok(dt) => dt.with_timezone(&Utc),
+                    Err(_e) => chrono::DateTime::parse_from_str(&pt.time, "%Y-%m-%dT%H:%M:%S%.fZ")
+                        .map_err(|e| format!("Failed to parse timestamp for logging: {}", e))?
+                        .with_timezone(&Utc),
+                };
+
+                let formatted_time = if parsed_datetime_utc.date_naive() == current_local_date {
+                    parsed_datetime_utc.format("%H:%M:%S").to_string()
+                } else {
+                    parsed_datetime_utc.format("%Y-%m-%d %H:%M:%S").to_string()
+                };
+
+                if verbose_output {
+                    println!("{} {} {} {} {:.5}", formatted_time, pt.instrument, pt.closeout_ask, pt.closeout_bid, spread);
+                }
 
                 let proto_msg = convert_price_tick_to_proto(pt)?;
 
@@ -55,7 +81,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             },
             StreamMessage::Heartbeat(hb) => {
-                println!("[HEARTBEAT] Time: {}", hb.time);
+                let parsed_datetime_utc = match DateTime::parse_from_rfc3339(&hb.time) {
+                    Ok(dt) => dt.with_timezone(&Utc),
+                    Err(_e) => chrono::DateTime::parse_from_str(&hb.time, "%Y-%m-%dT%H:%M:%S%.fZ")
+                        .map_err(|e| format!("Failed to parse heartbeat timestamp for logging: {}", e))?
+                        .with_timezone(&Utc),
+                };
+                if verbose_output {
+                    println!("{} HEARTBEAT", parsed_datetime_utc.format("%H:%M:%S")); // Changed format
+                }
 
                 let proto_msg = convert_heartbeat_to_proto(hb)?;
 

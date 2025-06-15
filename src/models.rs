@@ -1,19 +1,10 @@
 use serde::{Deserialize, Deserializer};
 use std::str::FromStr;
 
-fn deserialize_string_to_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    u64::from_str(&s).map_err(serde::de::Error::custom)
-}
-
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PriceLevel {
     pub price: String,
-    #[serde(deserialize_with = "deserialize_string_to_u64")]
     pub liquidity: u64,
 }
 
