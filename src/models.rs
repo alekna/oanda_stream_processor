@@ -42,13 +42,3 @@ pub enum StreamMessage {
     Heartbeat(Heartbeat),
     Unknown(serde_json::Value),
 }
-
-impl StreamMessage {
-    pub fn get_type(&self) -> &str {
-        match self {
-            StreamMessage::PriceTick(_) => "PRICE_TICK",
-            StreamMessage::Heartbeat(_) => "HEARTBEAT",
-            StreamMessage::Unknown(_) => "UNKNOWN",
-        }
-    }
-}

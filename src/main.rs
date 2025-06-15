@@ -1,7 +1,6 @@
 use tokio::sync::mpsc;
 use std::error::Error;
 use prost_types::Timestamp as ProstTimestamp;
-use chrono::DateTime;
 
 mod config;
 mod models;
