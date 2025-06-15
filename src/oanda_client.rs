@@ -4,8 +4,8 @@ use crate::config::Config;
 use crate::models::{StreamMessage, PriceTick, Heartbeat};
 use tokio::sync::mpsc;
 use std::error::Error;
-use tokio_util::io::StreamReader;
 use futures::TryStreamExt;
+use tracing::{info, error, warn}; // Import tracing macros for this file too
 
 pub async fn connect_to_stream(
     config: &Config,
@@ -18,7 +18,7 @@ pub async fn connect_to_stream(
         urlencoding::encode(&config.instruments)
     );
 
-    println!("Connecting to OANDA stream at: {}", url);
+    info!("Connecting to OANDA stream at: {}", url); // Changed from println! to info!
 
     let client = Client::new();
 
@@ -29,9 +29,9 @@ pub async fn connect_to_stream(
         .await?
         .error_for_status()?;
 
-    println!("Successfully connected to OANDA stream. Reading data...");
+    info!("Successfully connected to OANDA stream. Reading data..."); // Changed from println! to info!
 
-    let stream_reader = StreamReader::new(
+    let stream_reader = tokio_util::io::StreamReader::new(
         response.bytes_stream()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     );
@@ -43,7 +43,7 @@ pub async fn connect_to_stream(
         line.clear();
         match reader.read_line(&mut line).await {
             Ok(0) => {
-                println!("Stream closed by server.");
+                info!("Stream closed by server."); // Changed from println! to info!
                 break;
             },
             Ok(_) => {
@@ -55,7 +55,7 @@ pub async fn connect_to_stream(
                 let raw_json: serde_json::Value = match serde_json::from_str(trimmed_line) {
                     Ok(val) => val,
                     Err(e) => {
-                        eprintln!("Error parsing JSON line: '{}' -> {}", trimmed_line, e);
+                        error!("Error parsing JSON line: '{}' -> {}", trimmed_line, e); // Changed from eprintln! to error!
                         continue;
                     }
                 };
@@ -64,7 +64,7 @@ pub async fn connect_to_stream(
                     match serde_json::from_value::<Heartbeat>(raw_json.clone()) {
                         Ok(hb) => StreamMessage::Heartbeat(hb),
                         Err(e) => {
-                            eprintln!("Error deserializing Heartbeat: {} from {}", e, trimmed_line);
+                            error!("Error deserializing Heartbeat: {} from {}", e, trimmed_line); // Changed from eprintln! to error!
                             StreamMessage::Unknown(raw_json)
                         }
                     }
@@ -72,22 +72,22 @@ pub async fn connect_to_stream(
                     match serde_json::from_value::<PriceTick>(raw_json.clone()) {
                         Ok(pt) => StreamMessage::PriceTick(pt),
                         Err(e) => {
-                            eprintln!("Error deserializing PriceTick: {} from {}", e, trimmed_line);
+                            error!("Error deserializing PriceTick: {} from {}", e, trimmed_line); // Changed from eprintln! to error!
                             StreamMessage::Unknown(raw_json)
                         }
                     }
                 } else {
-                    eprintln!("Unknown message type or missing discriminator: {}", trimmed_line);
+                    warn!("Unknown message type or missing discriminator: {}", trimmed_line); // Changed from eprintln! to warn!
                     StreamMessage::Unknown(raw_json)
                 };
 
                 if let Err(e) = tx.send(message).await {
-                    eprintln!("Error sending message to channel: {}", e);
+                    error!("Error sending message to channel: {}", e); // Changed from eprintln! to error!
                     break;
                 }
             }
             Err(e) => {
-                eprintln!("Error reading from stream: {}", e);
+                error!("Error reading from stream: {}", e); // Changed from eprintln! to error!
                 break;
             }
         }

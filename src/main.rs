@@ -8,6 +8,7 @@ use tracing_subscriber;
 use tokio::signal;
 use tokio::select;
 use tokio::signal::unix::{signal, SignalKind};
+use tracing_subscriber::fmt::time::ChronoLocal; // Import ChronoLocal for detailed timestamps
 
 mod config;
 mod models;
@@ -24,6 +25,7 @@ use models::{StreamMessage, PriceTick, Heartbeat};
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
+        .with_timer(ChronoLocal::new("%Y-%m-%d %H:%M:%S%.3f".to_string())) // Configure tracing with full datetime and milliseconds
         .init();
 
     let config = match config::Config::from_env() {
@@ -51,6 +53,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let oanda_config = config.clone();
     tokio::spawn(async move {
+        // The info! logs in oanda_client::connect_to_stream will now have timestamps
         if let Err(e) = oanda_client::connect_to_stream(&oanda_config, tx).await {
             error!("OANDA Stream Error: {}", e);
         }
